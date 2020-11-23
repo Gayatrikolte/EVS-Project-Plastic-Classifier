@@ -1,49 +1,67 @@
-# Digital OCEAN FLASK SERVER RECEIVES IMAGE
-from flask import Flask, request, jsonify
-import classify
-import base64
-import json
-import firebase
-import env
+from __future__ import division, print_function
+# coding=utf-8
+import sys
+import os
+import glob
+import re
+from pathlib import Path
 
-# Instantiate Flask
+# Import fast.ai Library
+from fastai import *
+from fastai.vision import *
+
+# Flask utils
+from flask import Flask, redirect, url_for, request, render_template
+from werkzeug.utils import secure_filename
+
+# Define a flask app
 app = Flask(__name__)
 
+path = Path("path")
+classes = ['cardboard', 'glass', 'metal', 'paper', 'plastic', 'trash']
+# depricated use DataBunch.load_empty
+data2 = ImageDataBunch.single_from_classes(path, classes, ds_tfms=get_transforms(), size=224).normalize(imagenet_stats)
+# learn = create_cnn(data2, models.resnet34)
+# learn.load('model_9086')
+path1 = Path("./path/models")
+learn = load_learner(path1, 'export.pkl')
 
-# health check
-@app.route('/status')
-def health_check():
-    return 'Running!'
 
-
-# Performing image Recognition on Image, sent as bytes via POST payload
-@app.route('/detect', methods=["POST"])
-def detect():
-
-    imgBytes = request.data
-
-    imgdata = base64.b64decode(imgBytes)
-    with open("temp.png", 'wb') as f:
-        f.write(imgdata)
-
-    print("successfully receieved image")
+def model_predict(img_path):
+    """
+       model_predict will return the preprocessed image
+    """
+   
+    img = open_image(img_path)
+    pred_class,pred_idx,outputs = learn.predict(img)
+    return pred_class
     
-    # Pass image bytes to classifier
-    result = classify.analyse("temp.png")
 
-    # Return results as neat JSON object, using 
-    result = jsonify(result)
-    print(result.json)
+@app.route('/', methods=['GET'])
+def index():
+    # Main page
+    return render_template('index.html')
 
-    response_data = result.json
-    print(response_data)
-    
-    db = firebase.Firebase()
-    db.authenticate()
-    db.push(response_data)
-    print("Updated Firebase.")
 
-    return result
+@app.route('/predict', methods=['GET', 'POST'])
+def upload():
+    if request.method == 'POST':
+        # Get the file from post request
+        f = request.files['file']
+
+        # Save the file to ./uploads
+        basepath = os.path.dirname(__file__)
+        file_path = os.path.join(
+            basepath, 'uploads', secure_filename(f.filename))
+        f.save(file_path)
+
+        # Make prediction
+        preds = model_predict(file_path)
+        preds = str(preds)
+        return preds
+    return None
+
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=80, debug=True)
+    
+    app.run()
